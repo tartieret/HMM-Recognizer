@@ -1,5 +1,6 @@
 import warnings
 from asl_data import SinglesData
+import numpy as np
 
 
 def recognize(models: dict, test_set: SinglesData):
@@ -20,6 +21,29 @@ def recognize(models: dict, test_set: SinglesData):
     warnings.filterwarnings("ignore", category=DeprecationWarning)
     probabilities = []
     guesses = []
-    # TODO implement the recognizer
-    # return probabilities, guesses
-    raise NotImplementedError
+
+    for item in range(test_set.num_items):
+
+      word_X, word_lengths = test_set.get_item_Xlengths(item)
+      scores = {}
+
+      best_word = None
+      best_score = -np.Inf
+
+      for word in models:
+        model = models[word]
+        try:
+          score = model.score(word_X, word_lengths)
+          scores[word] = score
+
+          if score>best_score:
+            best_score = score
+            best_word = word
+
+        except:
+          scores[word] = -np.Inf
+
+      probabilities.append(scores)
+      guesses.append(best_word)
+
+    return probabilities, guesses

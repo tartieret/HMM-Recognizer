@@ -76,8 +76,34 @@ class SelectorBIC(ModelSelector):
         """
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        best_score = np.Inf
+        best_model = None
+
+        for n_components in range(self.min_n_components, self.max_n_components+1):
+            try:
+                model = self.base_model(n_components)
+                logL = model.score(self.X, self.lengths)
+
+                state_params = model.transmat_.shape[0] * (model.transmat_.shape[1] - 1)
+                output_params = n_components * self.X.shape[1] * 2 # As it is a Gaussian HMM
+                total_params = state_params + output_params + (n - 1)
+
+                # Use parameters = n*n+2*n*d
+                parameters = n_components*(n_components-1)+2*self.X.shape[1]*n_components
+                score = -2*logL+total_params*np.log(self.X.shape[0])
+
+                if score<best_score:
+                    best_score = score
+                    best_model = model
+
+            except:
+                pass
+
+        if best_model is None:
+            return self.base_model(self.min_n_components)
+        else:
+            return best_model
+
 
 
 class SelectorDIC(ModelSelector):
@@ -93,8 +119,36 @@ class SelectorDIC(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        best_score = -np.Inf
+        best_model = None
+
+        word_list = list(self.words)
+        word_list.remove(self.this_word)
+        nb_words = len(self.words)
+
+        for n_components in range(self.min_n_components, self.max_n_components+1):
+            try:
+                total = 0
+
+                model = self.base_model(n_components)
+                logL = model.score(self.X, self.lengths)
+
+                for word in word_list:
+                    X, lengths = self.hwords[word]
+                    total += model.score(X,lengths)
+
+                score = logL-total/(nb_words-1)
+
+                if best_score<score:
+                    best_score = score
+                    best_model = model
+            except:
+                pass
+
+        if best_model is None:
+            return self.base_model(self.min_n_components)
+        else:
+            return best_model
 
 
 class SelectorCV(ModelSelector):
@@ -105,5 +159,47 @@ class SelectorCV(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection using CV
-        raise NotImplementedError
+        if len(self.sequences) == 1:
+            return self.base_model(self.n_constant)
+
+        best_score = -np.Inf
+        best_model = None
+
+        # iterate through the range of components
+        for n_components in range(self.min_n_components, self.max_n_components+1):
+            scores = []
+
+            # use 3-folds cross validation
+            n_splits = min(3,len(self.sequences))
+            kfold = KFold(random_state=self.random_state, n_splits = n_splits)
+            for train_idx, test_idx in kfold.split(self.sequences):
+
+                # split the data in training and cross validation set
+                x_train, lengths_train = combine_sequences(train_idx, self.sequences)
+                x_test, lengths_test = combine_sequences(test_idx, self.sequences)
+
+                # train the model
+                try:
+                    model = GaussianHMM(n_components=n_components, n_iter=1000).fit(x_train, lengths_train)
+
+                    # model scoring
+                    logL = model.score(x_test, lengths_test)
+                    scores.append(logL)
+                except:
+                    pass
+
+            mean_score = 0
+            if len(scores)>0:
+                mean_score = np.average(scores)
+            
+                # if the average score is better than the
+                # best score, then keep the model
+                if mean_score>best_score:
+                    best_score = mean_score
+                    best_model = model
+
+        if best_model is None:
+            return self.base_model(self.n_constant)
+        else:
+            return best_model
+
